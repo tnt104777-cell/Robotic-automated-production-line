@@ -5,7 +5,7 @@
   "per_class_recall": {
     "NoNose": 0.9474,
     "NoNose,NoBody2": 0.9412,
-    "NoNose,NoBody2,NoBody1": 1.0,
+    "NoNose,NoBody2,NoBody1": 1,
     "Normal": 0.9935
   },
   "labels": [
