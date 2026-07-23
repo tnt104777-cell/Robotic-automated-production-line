@@ -35,11 +35,9 @@ def primary_class(desc_series):
     v = v[v.str.strip() != ""]
     if len(v) == 0:
         return "Normal"
-    lab = v.value_counts().index[0]
-    parts = [p.strip() for p in lab.split(",")]
-    if {"NoNose", "NoBody2", "NoBody1"}.issubset(set(parts)):
-        return "AllMissing"
-    return parts[0]
+    # 원본 Description 문자열을 그대로 라벨로 사용 (4종: Normal / NoNose /
+    # NoNose,NoBody2 / NoNose,NoBody2,NoBody1). 공백만 정리.
+    return ",".join(p.strip() for p in v.value_counts().index[0].split(","))
 
 
 def load_raw(root):
@@ -137,18 +135,34 @@ def build(root):
                 patt.append({"robot": r, "klass": lab, "t_bin": int(b), "value": float(val)})
     patterns = pd.DataFrame(patt).groupby(["robot", "klass", "t_bin"], as_index=False)["value"].mean()
 
-    return cyc, fi, patterns, metrics
+
+    # --- 드릴다운용 파형 (클라우드 배포용, 사이클당 ~150포인트로 다운샘플) ---
+    dd_rows = []
+    for cid, g in df[df["id"].isin(keep)].groupby("id"):
+        g = g.reset_index(drop=True)
+        step = max(1, len(g) // 150)
+        gs = g.iloc[::step]
+        t = gs["_time"].values.astype("datetime64[ns]").astype("float64")
+        t = (t - t.min()) / 1e9  # 초
+        for i, (_, rr) in enumerate(gs.iterrows()):
+            dd_rows.append({"id": cid, "t": round(float(t[i]), 2),
+                            "R01": rr["R01"], "R02": rr["R02"],
+                            "R03": rr["R03"], "R04": rr["R04"]})
+    drill = pd.DataFrame(dd_rows)
+
+    return cyc, fi, patterns, metrics, drill
 
 
 if __name__ == "__main__":
     import argparse
     ap = argparse.ArgumentParser(); ap.add_argument("--root", default="."); a = ap.parse_args()
-    cyc, fi, patterns, metrics = build(a.root)
+    cyc, fi, patterns, metrics, drill = build(a.root)
     cyc.to_csv("cycles.csv", index=False)
     fi.to_csv("feature_importance.csv", index=False)
     patterns.to_csv("patterns.csv", index=False)
+    drill.to_csv("drilldown.csv", index=False)
     json.dump(metrics, open("metrics.json", "w"), ensure_ascii=False, indent=2)
-    print("saved cycles.csv / feature_importance.csv / patterns.csv / metrics.json")
+    print("saved cycles / feature_importance / patterns / metrics / drilldown")
     print("label dist:", cyc["label"].value_counts().to_dict())
     print("accuracy=%.3f macro_recall=%.3f defect_detect=%.3f"
           % (metrics["accuracy"], metrics["macro_recall"], metrics["defect_detection"]))

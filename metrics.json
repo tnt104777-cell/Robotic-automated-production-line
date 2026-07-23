@@ -1,31 +1,42 @@
 {
-  "accuracy": 0.9905,
-  "macro_recall": 0.9917,
-  "defect_detection": 0.9877,
+  "accuracy": 0.9779,
+  "macro_recall": 0.9705,
+  "defect_detection": 0.9938,
   "per_class_recall": {
-    "AllMissing": 1.0,
-    "NoNose": 0.9815,
+    "NoNose": 0.9474,
+    "NoNose,NoBody2": 0.9412,
+    "NoNose,NoBody2,NoBody1": 1.0,
     "Normal": 0.9935
   },
   "labels": [
-    "AllMissing",
     "NoNose",
+    "NoNose,NoBody2",
+    "NoNose,NoBody2,NoBody1",
     "Normal"
   ],
   "confusion": [
     [
       54,
+      2,
+      0,
+      1
+    ],
+    [
+      3,
+      48,
       0,
       0
     ],
     [
       0,
-      106,
-      2
+      0,
+      54,
+      0
     ],
     [
       0,
       1,
+      0,
       154
     ]
   ],

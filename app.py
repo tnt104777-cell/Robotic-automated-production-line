@@ -11,8 +11,8 @@ import plotly.graph_objects as go
 
 DATA_DIR = "."
 BG, ACCENT, DEFECT, INK = "#F5F2ED", "#4A7C59", "#E24B4A", "#2B2B2B"
-CLASS_COLORS = {"Normal": ACCENT, "NoNose": "#E8A13C", "AllMissing": DEFECT,
-                "NoBody2": "#C77DFF", "NoBody1": "#7DA0C7"}
+CLASS_COLORS = {"Normal": ACCENT, "NoNose": "#E8A13C",
+                "NoNose,NoBody2": "#C77DFF", "NoNose,NoBody2,NoBody1": DEFECT}
 ROBOT_KOR = {"R01": "R01 (베이스/바디1)", "R02": "R02 (그리퍼-제외피처)",
              "R03": "R03 (조립력·핵심신호)", "R04": "R04 (노즈)"}
 
@@ -34,22 +34,10 @@ def load(name):
     return json.load(open(p, encoding="utf-8")) if name.endswith(".json") else pd.read_csv(p)
 
 @st.cache_data
-def raw_for_cycle(cid):
-    p = os.path.join(DATA_DIR, "FFCell_CycleManagement.csv")
-    if not os.path.exists(p): return None
-    m = pd.read_csv(p, usecols=["_time", "Q_Cell_CycleCount"], low_memory=False)
-    cc = pd.to_numeric(m["Q_Cell_CycleCount"], errors="coerce")
-    sess = (cc.diff() < 0).cumsum().fillna(0).astype(int)
-    ids = sess.astype(str) + "_" + cc.astype("Int64").astype(str)
-    mask = (ids == cid).values
-    out = pd.DataFrame({"_time": pd.to_datetime(m.loc[mask, "_time"], errors="coerce").values})
-    for r in ["R01", "R02", "R03", "R04"]:
-        fp = os.path.join(DATA_DIR, f"{r}_Data.csv")
-        if os.path.exists(fp):
-            v = pd.read_csv(fp, usecols=[f"I_{r}_Gripper_Load"], low_memory=False)[f"I_{r}_Gripper_Load"].values
-            out[r] = pd.to_numeric(pd.Series(v[mask]), errors="coerce").values
-    if len(out): out["t"] = (out["_time"] - out["_time"].min()).dt.total_seconds()
-    return out
+def drill_for_cycle(cid):
+    d = load("drilldown.csv")
+    if d is None: return None
+    return d[d["id"] == cid].sort_values("t")
 
 def kpi(col, lbl, val, sub=""):
     col.markdown(f'<div class="kpi"><div class="lbl">{lbl}</div><div class="val">{val}</div>'
@@ -158,9 +146,13 @@ elif page.startswith("②"):
 elif page.startswith("③"):
     st.title("사이클 드릴다운")
     st.caption("개별 사이클 선택 → 원본 센서 파형 + 판정 근거")
-    only = st.checkbox("결함 사이클만 보기")
-    opts = cyc[cyc["defect"]] if only else cyc
-    cid = st.selectbox("사이클 ID (세션_카운트)", opts["id"].tolist())
+    labels_all = ["전체"] + sorted(cyc["label"].unique().tolist())
+    col_a, col_b = st.columns([1, 1])
+    with col_a:
+        sel_label = st.selectbox("① 불량 유형", labels_all)
+    opts = cyc if sel_label == "전체" else cyc[cyc["label"] == sel_label]
+    with col_b:
+        cid = st.selectbox(f"② 사이클 ID  ({len(opts)}개)", opts["id"].tolist())
     row = cyc[cyc["id"] == cid].iloc[0]
     c = st.columns(4)
     kpi(c[0], "실제 라벨", row["label"])
@@ -168,9 +160,9 @@ elif page.startswith("③"):
     kpi(c[2], "이상 스코어", f"{row['anomaly_score']:.1f}", f"임계 {row['threshold']:.1f}")
     kpi(c[3], "E-Stop 횟수", f"{int(row['n_estop'])}")
     st.markdown("##### 원본 센서 파형 (R01~R04 Gripper Load)")
-    raw = raw_for_cycle(cid)
+    raw = drill_for_cycle(cid)
     if raw is None or raw.empty:
-        st.warning("원본 R0x 파일을 찾을 수 없어요 (DATA_DIR 확인).")
+        st.warning("drilldown.csv 가 없어요. build_cycle.py 를 다시 실행하세요.")
     else:
         f = go.Figure()
         for rr in ["R01", "R02", "R03", "R04"]:
