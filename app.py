@@ -1,6 +1,6 @@
 """
 FFCell 로켓 조립 품질 대시보드 (드릴다운형)
-데이터: build_cycles.py 산출물 (cycles.csv / patterns.csv / feature_importance.csv / metrics.json)
+데이터: build_cycle.py 산출물 (cycles.csv / patterns.csv / feature_importance.csv / metrics.json / drilldown.csv)
 실행: streamlit run app.py
 """
 import os, json
@@ -46,7 +46,7 @@ def kpi(col, lbl, val, sub=""):
 cyc = load("cycles.csv"); met = load("metrics.json")
 fi = load("feature_importance.csv"); patt = load("patterns.csv")
 if cyc is None or met is None:
-    st.error("cycles.csv / metrics.json 이 없어요. build_cycles.py 를 먼저 실행하세요."); st.stop()
+    st.error("cycles.csv / metrics.json 이 없어요. build_cycle.py 를 먼저 실행하세요."); st.stop()
 
 st.sidebar.title("🚀 FFCell 품질 대시보드")
 st.sidebar.caption("로켓 조립 라인 · 규칙기반 계층 분류")
@@ -91,94 +91,4 @@ if page.startswith("①"):
                         paper_bgcolor="rgba(0,0,0,0)", margin=dict(l=0, r=0, t=0, b=0))
         st.plotly_chart(f, use_container_width=True)
 
-    st.markdown("#### 피처 중요도 · 클래스별 recall · 혼동행렬")
-    x, y, z = st.columns([1.1, 1, 1.2])
-    with x:
-        st.caption("피처 중요도 (R02 오염피처 제외)")
-        if fi is not None:
-            f = px.bar(fi.head(8), x="importance", y="feature", orientation="h",
-                       color_discrete_sequence=[ACCENT])
-            f.update_layout(height=300, plot_bgcolor="white", paper_bgcolor="rgba(0,0,0,0)",
-                            yaxis=dict(autorange="reversed"), margin=dict(l=0, r=0, t=0, b=0))
-            st.plotly_chart(f, use_container_width=True)
-    with y:
-        st.caption("클래스별 recall")
-        pr = pd.DataFrame({"class": list(met["per_class_recall"]),
-                           "recall": list(met["per_class_recall"].values())})
-        f = px.bar(pr, x="class", y="recall", color="class", text=pr["recall"].round(3),
-                   color_discrete_map=CLASS_COLORS)
-        f.update_layout(showlegend=False, height=300, yaxis_range=[0, 1.05], plot_bgcolor="white",
-                        paper_bgcolor="rgba(0,0,0,0)", margin=dict(l=0, r=0, t=0, b=0))
-        st.plotly_chart(f, use_container_width=True)
-    with z:
-        st.caption("혼동행렬")
-        cm = np.array(met["confusion"]); L = met["labels"]
-        f = go.Figure(go.Heatmap(z=cm, x=L, y=L, colorscale="Greens",
-                                 text=cm, texttemplate="%{text}", showscale=False))
-        f.update_layout(height=300, paper_bgcolor="rgba(0,0,0,0)",
-                        xaxis_title="예측", yaxis_title="실제", margin=dict(l=0, r=0, t=0, b=0))
-        st.plotly_chart(f, use_container_width=True)
-    st.info("ℹ️ SHAP 상세: v72 노트북 SHAP 값을 shap_values.csv 로 넣으면 이 자리에 표시하도록 확장 예정. "
-            "지금 피처 중요도는 RF 기반이며, 결론(R03 조립력이 핵심 신호)은 SHAP 분석과 일치합니다.")
-
-# ───────── ② 센서·로봇 움직임 ─────────
-elif page.startswith("②"):
-    st.title("센서 · 로봇 움직임")
-    st.caption("각 로봇 센서가 사이클 동안 어떻게 움직이나 — 정상 vs 결함 비교")
-    if patt is None:
-        st.warning("patterns.csv 가 없어요."); st.stop()
-    r = st.selectbox("로봇 선택", ["R03", "R04", "R01", "R02"],
-                     format_func=lambda x: ROBOT_KOR[x])
-    sub = patt[patt["robot"] == r]
-    f = go.Figure()
-    for lab in sub["klass"].unique():
-        s = sub[sub["klass"] == lab].sort_values("t_bin")
-        f.add_trace(go.Scatter(x=s["t_bin"], y=s["value"], mode="lines", name=lab,
-                               line=dict(color=CLASS_COLORS.get(lab, "#888"), width=2.5)))
-    f.update_layout(height=440, plot_bgcolor="white", paper_bgcolor="rgba(0,0,0,0)",
-                    xaxis_title="사이클 진행도 (%)", yaxis_title=f"{r} Gripper Load (평균 파형)",
-                    margin=dict(l=10, r=10, t=10, b=10))
-    st.plotly_chart(f, use_container_width=True)
-    if r == "R03":
-        st.success("R03(조립력)은 노즈 결합 구간에서 정상과 결함이 가장 크게 갈리는 핵심 신호입니다.")
-
-# ───────── ③ 사이클 드릴다운 ─────────
-elif page.startswith("③"):
-    st.title("사이클 드릴다운")
-    st.caption("개별 사이클 선택 → 원본 센서 파형 + 판정 근거")
-    labels_all = ["전체"] + sorted(cyc["label"].unique().tolist())
-    col_a, col_b = st.columns([1, 1])
-    with col_a:
-        sel_label = st.selectbox("① 불량 유형", labels_all)
-    opts = cyc if sel_label == "전체" else cyc[cyc["label"] == sel_label]
-    with col_b:
-        cid = st.selectbox(f"② 사이클 ID  ({len(opts)}개)", opts["id"].tolist())
-    row = cyc[cyc["id"] == cid].iloc[0]
-    c = st.columns(4)
-    kpi(c[0], "실제 라벨", row["label"])
-    kpi(c[1], "규칙기반 예측", row["pred"], "✅ 일치" if row["pred"] == row["label"] else "❌ 불일치")
-    kpi(c[2], "이상 스코어", f"{row['anomaly_score']:.1f}", f"임계 {row['threshold']:.1f}")
-    kpi(c[3], "E-Stop 횟수", f"{int(row['n_estop'])}")
-    st.markdown("##### 원본 센서 파형 (R01~R04 Gripper Load)")
-    raw = drill_for_cycle(cid)
-    if raw is None or raw.empty:
-        st.warning("drilldown.csv 가 없어요. build_cycle.py 를 다시 실행하세요.")
-    else:
-        f = go.Figure()
-        for rr in ["R01", "R02", "R03", "R04"]:
-            if rr in raw.columns:
-                f.add_trace(go.Scatter(x=raw["t"], y=raw[rr], mode="lines", name=rr))
-        f.update_layout(height=430, plot_bgcolor="white", paper_bgcolor="rgba(0,0,0,0)",
-                        xaxis_title="경과(초)", yaxis_title="Gripper Load",
-                        margin=dict(l=10, r=10, t=10, b=10))
-        st.plotly_chart(f, use_container_width=True)
-
-# ───────── ④ 이미지 CV ─────────
-else:
-    st.title("이미지 CV")
-    st.caption("멀티모달 확장 — 정합성 있는 이미지 데이터 수신 후 활성화")
-    st.warning("현재 이미지 데이터 미확보. 아래는 향후 구성 자리입니다.")
-    a, b = st.columns(2)
-    a.container(border=True).markdown("#### state_4\n🖼️ *이미지 자리*")
-    b.container(border=True).markdown("#### state_9\n🖼️ *이미지 자리*")
-    st.container(border=True).markdown("#### 센서 × 비전 퓨전 판정\n📊 *Phase 2~3 자리*")
+    st.markdown("#### 피처 중요도 · 클래스별 recall
